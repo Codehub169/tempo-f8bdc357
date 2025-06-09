@@ -1,5 +1,5 @@
 import api from './api';
-import { jwtDecode } from 'jwt-decode'; // Corrected import
+import { jwtDecode } from 'jwt-decode';
 
 const API_URL = '/auth';
 
@@ -8,9 +8,10 @@ const login = async (email, password) => {
     const response = await api.post(`${API_URL}/login`, { email, password });
     if (response.data.token) {
       localStorage.setItem('token', response.data.token);
-      // Decode token to get user info if needed, or rely on a /me endpoint
-      // For now, let's assume the login response includes basic user info
+      // The login response includes basic user info, which we store.
+      // AuthContext will typically call fetchCurrentUser for more details or to verify.
       localStorage.setItem('user', JSON.stringify(response.data.user));
+      sessionStorage.removeItem('hasSeenDashboard'); // Reset flag on new login for PrivateRoute logic
     }
     return response.data;
   } catch (error) {
@@ -32,43 +33,47 @@ const register = async (email, password) => {
 const logout = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
-  // Optionally, could also call a backend logout endpoint if it exists
+  sessionStorage.removeItem('hasSeenDashboard'); // Clear the flag on logout for PrivateRoute logic
+  // Optionally, call a backend logout endpoint if it exists
   // e.g., api.post(`${API_URL}/logout`);
 };
 
 const getCurrentUser = () => {
-  const userStr = localStorage.getItem('user');
-  if (userStr) {
-    try {
-      return JSON.parse(userStr);
-    } catch (e) {
-      console.error("Failed to parse user from localStorage", e);
-      logout(); // Clear corrupted data
+  const token = localStorage.getItem('token');
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const decodedToken = jwtDecode(token);
+    // Check token expiry
+    if (decodedToken.exp * 1000 < Date.now()) {
+      console.log("Token expired");
+      logout(); // Clear expired token and user data
       return null;
     }
-  }
-  const token = localStorage.getItem('token');
-  if (token) {
-    try {
-      const decoded = jwtDecode(token);
-      // Check token expiry
-      if (decoded.exp * 1000 < Date.now()) {
-        console.log("Token expired");
-        logout();
+
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        // If user data is in localStorage, parse and return it.
+        // This is often a subset of full user details, potentially enriched by fetchCurrentUser.
+        return JSON.parse(userStr);
+      } catch (e) {
+        console.error("Failed to parse user from localStorage", e);
+        logout(); // Clear corrupted data
         return null;
       }
-      // Potentially fetch user details from a /me endpoint if not in localStorage
-      // For now, if user is not in localStorage but token is, this means partial state
-      // It's better to rely on a /me endpoint or ensure user is always stored with token.
-      // For this implementation, we assume if user is not in localStorage, they need to re-login or /me is called elsewhere.
-      return decoded; // Contains id, email, iat, exp
-    } catch (error) {
-      console.error('Invalid token:', error);
-      logout(); // Clear invalid token
-      return null;
     }
+    // If user string is not in localStorage, but token is valid,
+    // return the decoded token. AuthContext might use fetchCurrentUser to get full details.
+    return decodedToken; // Contains id, email, iat, exp
+
+  } catch (error) {
+    console.error('Invalid token:', error);
+    logout(); // Clear invalid token and user data
+    return null;
   }
-  return null;
 };
 
 const isAuthenticated = () => {
@@ -78,11 +83,11 @@ const isAuthenticated = () => {
     const decoded = jwtDecode(token);
     return decoded.exp * 1000 > Date.now();
   } catch (error) {
+    console.error('Token check failed during isAuthenticated:', error);
     return false;
   }
 };
 
-// Optional: if you have a /me endpoint to verify token and get fresh user data
 const fetchCurrentUser = async () => {
   try {
     const response = await api.get(`${API_URL}/me`);
@@ -90,9 +95,10 @@ const fetchCurrentUser = async () => {
       localStorage.setItem('user', JSON.stringify(response.data));
       return response.data;
     }
+    return null; // Should not happen if API is consistent, but good practice
   } catch (error) {
-    console.warn('Failed to fetch current user from /me, possibly old token:', error);
-    logout(); // Token might be invalid or expired
+    console.warn('Failed to fetch current user from /me, possibly invalid/expired token:', error.response ? error.response.data : error.message);
+    logout(); // Token might be invalid or expired, so log out
     return null;
   }
 };

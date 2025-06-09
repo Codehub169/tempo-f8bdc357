@@ -1,6 +1,6 @@
 const express = require('express');
 const { getDb } = require('../database');
-const { authenticateToken } = require('./authRoutes'); // Assuming authRoutes exports authenticateToken
+// const { authenticateToken } = require('./authRoutes'); // Authentication removed
 
 const router = express.Router();
 
@@ -8,20 +8,23 @@ const router = express.Router();
 router.get('/', async (req, res) => {
     const { category, sortBy, sortOrder = 'ASC', lowStock, search, page = 1, limit = 10 } = req.query;
     let query = 'SELECT * FROM products';
-    const params = [];
+    const sqlParams = []; 
     const conditions = [];
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
 
     if (search) {
         conditions.push('(name LIKE ? OR sku LIKE ? OR description LIKE ?)');
-        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        sqlParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
     if (category) {
         conditions.push('category = ?');
-        params.push(category);
+        sqlParams.push(category);
     }
     if (lowStock === 'true') {
-        conditions.push('stock < ?'); // Define what 'low stock' means, e.g., < 10
-        params.push(10);
+        conditions.push('stock < ?');
+        sqlParams.push(10); // Example low stock threshold
     }
 
     if (conditions.length > 0) {
@@ -31,32 +34,43 @@ router.get('/', async (req, res) => {
     if (sortBy) {
         const allowedSortBy = ['name', 'price', 'stock', 'created_at'];
         if (allowedSortBy.includes(sortBy)) {
-            query += ` ORDER BY ${sortBy} ${sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'}`;
+            const order = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+            query += ` ORDER BY ${sortBy} ${order}`;
+        } else {
+            query += ' ORDER BY created_at DESC'; // Default sort if sortBy is invalid
         }
     } else {
         query += ' ORDER BY created_at DESC'; // Default sort
     }
 
-    const offset = (page - 1) * limit;
+    const offset = (pageNum - 1) * limitNum;
     query += ' LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), parseInt(offset));
+    sqlParams.push(limitNum, offset);
 
     try {
         const db = await getDb();
-        const products = await db.all(query, params);
+        const products = await db.all(query, sqlParams);
         
-        // For total count for pagination
         let countQuery = 'SELECT COUNT(*) as total FROM products';
+        // Params for count query should only include filtering conditions, not pagination
+        const countParams = [];
+        if (search) {
+            countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        }
+        if (category) {
+            countParams.push(category);
+        }
+        if (lowStock === 'true') {
+            countParams.push(10);
+        }
+        
         if (conditions.length > 0) {
             countQuery += ' WHERE ' + conditions.join(' AND ');
-            // Need to pass the same params for conditions to countQuery, excluding limit/offset params
-            const countParams = params.slice(0, params.length - 2);
-            const { total } = await db.get(countQuery, countParams);
-            res.json({ products, total, page: parseInt(page), limit: parseInt(limit) });
-        } else {
-            const { total } = await db.get(countQuery);
-            res.json({ products, total, page: parseInt(page), limit: parseInt(limit) });
         }
+        
+        const { total } = await db.get(countQuery, countParams);
+        
+        res.json({ products, total, page: pageNum, limit: limitNum });
 
     } catch (error) {
         console.error('Error fetching products:', error);
@@ -80,42 +94,55 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// POST /api/products - Add a new product (Protected)
-router.post('/', authenticateToken, async (req, res) => {
+// POST /api/products - Add a new product (No longer Protected)
+router.post('/', async (req, res) => {
     const { name, sku, category, description, price, stock, image_url } = req.body;
-    if (!name || !sku || !price || stock === undefined) {
+    if (!name || !sku || price === undefined || stock === undefined) {
         return res.status(400).json({ message: 'Name, SKU, price, and stock are required' });
     }
-    if (isNaN(parseFloat(price)) || isNaN(parseInt(stock))) {
-        return res.status(400).json({ message: 'Price and stock must be valid numbers.' });
+    const parsedPrice = parseFloat(price);
+    const parsedStock = parseInt(stock, 10);
+
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ message: 'Price must be a valid non-negative number.' });
+    }
+    if (isNaN(parsedStock) || parsedStock < 0) {
+        return res.status(400).json({ message: 'Stock must be a valid non-negative integer.' });
     }
 
     try {
         const db = await getDb();
         const result = await db.run(
             'INSERT INTO products (name, sku, category, description, price, stock, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [name, sku, category, description, parseFloat(price), parseInt(stock), image_url]
+            [name, sku, category, description, parsedPrice, parsedStock, image_url]
         );
-        res.status(201).json({ message: 'Product added successfully', productId: result.lastID });
+        const newProduct = await db.get('SELECT * FROM products WHERE id = ?', [result.lastID]);
+        res.status(201).json({ message: 'Product added successfully', product: newProduct });
     } catch (error) {
         console.error('Error adding product:', error);
-        if (error.message.includes('UNIQUE constraint failed: products.sku')) {
+        if (error.message && error.message.includes('UNIQUE constraint failed: products.sku')) {
             return res.status(409).json({ message: 'SKU already exists.' });
         }
         res.status(500).json({ message: 'Error adding product', error: error.message });
     }
 });
 
-// PUT /api/products/:id - Update an existing product (Protected)
-router.put('/:id', authenticateToken, async (req, res) => {
+// PUT /api/products/:id - Update an existing product (No longer Protected)
+router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const { name, sku, category, description, price, stock, image_url } = req.body;
 
     if (!name || !sku || price === undefined || stock === undefined) {
         return res.status(400).json({ message: 'Name, SKU, price, and stock are required fields for update.' });
     }
-    if (isNaN(parseFloat(price)) || isNaN(parseInt(stock))) {
-        return res.status(400).json({ message: 'Price and stock must be valid numbers.' });
+    const parsedPrice = parseFloat(price);
+    const parsedStock = parseInt(stock, 10);
+
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+        return res.status(400).json({ message: 'Price must be a valid non-negative number.' });
+    }
+    if (isNaN(parsedStock) || parsedStock < 0) {
+        return res.status(400).json({ message: 'Stock must be a valid non-negative integer.' });
     }
 
     try {
@@ -127,29 +154,29 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
         const result = await db.run(
             'UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, stock = ?, image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [name, sku, category, description, parseFloat(price), parseInt(stock), image_url, id]
+            [name, sku, category, description, parsedPrice, parsedStock, image_url, id]
         );
-
+        
+        const updatedProduct = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         if (result.changes === 0) {
-            return res.status(404).json({ message: 'Product not found or no changes made' });
+            return res.json({ message: 'Product updated successfully (no changes detected)', product: updatedProduct });
         }
-        res.json({ message: 'Product updated successfully', productId: id });
+        res.json({ message: 'Product updated successfully', product: updatedProduct });
+
     } catch (error) {
         console.error(`Error updating product ${id}:`, error);
-        if (error.message.includes('UNIQUE constraint failed: products.sku')) {
+        if (error.message && error.message.includes('UNIQUE constraint failed: products.sku')) {
             return res.status(409).json({ message: 'SKU already exists for another product.' });
         }
         res.status(500).json({ message: 'Error updating product', error: error.message });
     }
 });
 
-// DELETE /api/products/:id - Delete a product (Protected)
-router.delete('/:id', authenticateToken, async (req, res) => {
+// DELETE /api/products/:id - Delete a product (No longer Protected)
+router.delete('/:id', async (req, res) => {
     const { id } = req.params;
     try {
         const db = await getDb();
-        // Check if product is part of any order. If so, prevent deletion or handle as per business logic.
-        // For this example, we'll check order_items.
         const orderItems = await db.get('SELECT COUNT(*) as count FROM order_items WHERE product_id = ?', [id]);
         if (orderItems.count > 0) {
             return res.status(400).json({ message: 'Cannot delete product. It is part of existing orders. Consider archiving it instead.' });
@@ -162,10 +189,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         res.json({ message: 'Product deleted successfully' });
     } catch (error) {
         console.error(`Error deleting product ${id}:`, error);
-        // The database schema has ON DELETE RESTRICT for order_items if a product is deleted.
-        // This means SQLite will prevent deletion if an order_item references it.
-        // The check above is a more user-friendly way to inform this.
-        if (error.message.includes('FOREIGN KEY constraint failed')) {
+        if (error.message && error.message.includes('FOREIGN KEY constraint failed')) {
              return res.status(400).json({ message: 'Cannot delete product. It is referenced in existing orders.' });
         }
         res.status(500).json({ message: 'Error deleting product', error: error.message });

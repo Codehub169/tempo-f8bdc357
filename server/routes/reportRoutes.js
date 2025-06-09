@@ -1,6 +1,6 @@
 const express = require('express');
 const { getDb } = require('../database');
-const { authenticateToken } = require('./authRoutes');
+// const { authenticateToken } = require('./authRoutes'); // Authentication removed
 
 const router = express.Router();
 
@@ -24,16 +24,15 @@ const parseDateRange = (startDateStr, endDateStr) => {
     return { startDate, endDate };
 };
 
-// GET /api/reports/sales/summary - Sales summary (Protected)
-router.get('/sales/summary', authenticateToken, async (req, res) => {
+// GET /api/reports/sales/summary - Sales summary (No longer Protected)
+router.get('/sales/summary', async (req, res) => {
     const { startDate: startDateStr, endDate: endDateStr, period } = req.query;
     let { startDate, endDate } = parseDateRange(startDateStr, endDateStr);
 
     if (period) {
         const today = new Date();
         today.setHours(0,0,0,0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(today.getDate() + 1);
+        // Note: tomorrow calculation was not used, removed for clarity
 
         switch(period.toLowerCase()) {
             case 'daily':
@@ -43,14 +42,15 @@ router.get('/sales/summary', authenticateToken, async (req, res) => {
                 break;
             case 'monthly':
                 startDate = new Date(today.getFullYear(), today.getMonth(), 1);
-                endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0); // Last day of current month
                 endDate.setHours(23,59,59,999);
                 break;
             case 'yearly':
-                startDate = new Date(today.getFullYear(), 0, 1);
-                endDate = new Date(today.getFullYear(), 11, 31);
+                startDate = new Date(today.getFullYear(), 0, 1); // First day of current year
+                endDate = new Date(today.getFullYear(), 11, 31); // Last day of current year
                 endDate.setHours(23,59,59,999);
                 break;
+            // Default: if period is invalid, use startDate/endDate from query or null
         }
     }
 
@@ -75,18 +75,19 @@ router.get('/sales/summary', authenticateToken, async (req, res) => {
         const db = await getDb();
         const summary = await db.get(query, params);
         
-        // Get low stock items count
-        const lowStockResult = await db.get('SELECT COUNT(*) as low_stock_items_count FROM products WHERE stock < ?', [10]); // Assuming low stock is < 10
+        const lowStockThreshold = 10; // Define low stock threshold
+        const lowStockResult = await db.get('SELECT COUNT(*) as low_stock_items_count FROM products WHERE stock < ?', [lowStockThreshold]);
 
         res.json({ 
             sales_summary: {
-                total_orders: summary.total_orders || 0,
-                total_revenue: summary.total_revenue || 0,
-                average_order_value: summary.average_order_value || 0,
+                total_orders: summary?.total_orders || 0,
+                total_revenue: summary?.total_revenue || 0,
+                average_order_value: summary?.average_order_value || 0,
             },
-            low_stock_items_count: lowStockResult.low_stock_items_count || 0,
+            low_stock_items_count: lowStockResult?.low_stock_items_count || 0,
             period_start: startDate ? startDate.toISOString().split('T')[0] : null,
             period_end: endDate ? endDate.toISOString().split('T')[0] : null,
+            filters_applied: { period, startDate: startDateStr, endDate: endDateStr } // For debugging/transparency
         });
     } catch (error) {
         console.error('Error fetching sales summary:', error);
@@ -94,8 +95,8 @@ router.get('/sales/summary', authenticateToken, async (req, res) => {
     }
 });
 
-// GET /api/reports/sales/by-product - Sales by product (Protected)
-router.get('/sales/by-product', authenticateToken, async (req, res) => {
+// GET /api/reports/sales/by-product - Sales by product (No longer Protected)
+router.get('/sales/by-product', async (req, res) => {
     const { startDate: startDateStr, endDate: endDateStr } = req.query;
     const { startDate, endDate } = parseDateRange(startDateStr, endDateStr);
 
@@ -136,10 +137,15 @@ router.get('/sales/by-product', authenticateToken, async (req, res) => {
     }
 });
 
-// GET /api/reports/top-selling-products - Top N selling products (Protected)
-router.get('/top-selling-products', authenticateToken, async (req, res) => {
-    const { limit = 5, startDate: startDateStr, endDate: endDateStr, criteria = 'revenue' } = req.query; // criteria can be 'revenue' or 'quantity'
+// GET /api/reports/top-selling-products - Top N selling products (No longer Protected)
+router.get('/top-selling-products', async (req, res) => {
+    const { startDate: startDateStr, endDate: endDateStr, criteria = 'revenue' } = req.query;
     const { startDate, endDate } = parseDateRange(startDateStr, endDateStr);
+
+    let queryLimit = parseInt(req.query.limit, 10);
+    if (isNaN(queryLimit) || queryLimit <= 0) {
+        queryLimit = 5; // Default limit if not specified or invalid
+    }
 
     let orderByField = 'total_revenue_from_product';
     if (criteria.toLowerCase() === 'quantity') {
@@ -168,14 +174,14 @@ router.get('/top-selling-products', authenticateToken, async (req, res) => {
     }
 
     query += ` GROUP BY p.id, p.name, p.sku ORDER BY ${orderByField} DESC LIMIT ?`;
-    params.push(parseInt(limit));
+    params.push(queryLimit);
 
     try {
         const db = await getDb();
         const topSellingProducts = await db.all(query, params);
         res.json({ 
             top_selling_products: topSellingProducts,
-            limit: parseInt(limit),
+            limit: queryLimit, // Use the sanitized limit
             criteria,
             period_start: startDate ? startDate.toISOString().split('T')[0] : null,
             period_end: endDate ? endDate.toISOString().split('T')[0] : null,

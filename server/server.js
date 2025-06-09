@@ -5,7 +5,7 @@ const path = require('path');
 const { db, initDb } = require('./database'); // db connection is established and initDb is called here
 
 const app = express();
-const PORT = 9000;
+const PORT = process.env.PORT || 9000;
 
 // Middleware
 app.use(cors()); // Enable CORS for all routes
@@ -22,16 +22,17 @@ app.get('/api/health', (req, res) => {
     res.status(200).json({ status: 'UP', message: 'Server is healthy' });
 });
 
-// Placeholder for future API routes
-// const authRoutes = require('./routes/authRoutes');
-// const productRoutes = require('./routes/productRoutes');
-// const orderRoutes = require('./routes/orderRoutes');
-// const reportRoutes = require('./routes/reportRoutes');
+// Import API route modules
+// const authRoutes = require('./routes/authRoutes'); // Auth routes are removed
+const productRoutes = require('./routes/productRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
-// app.use('/api/auth', authRoutes); // Example: app.use('/api/auth', require('./routes/authRoutes')(db));
-// app.use('/api/products', productRoutes);
-// app.use('/api/orders', orderRoutes);
-// app.use('/api/reports', reportRoutes);
+// Use API routes
+// app.use('/api/auth', authRoutes); // Auth routes are removed
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/reports', reportRoutes);
 
 // The "catchall" handler: for any request that doesn't match one above,
 // send back React's index.html file.
@@ -66,6 +67,9 @@ app.listen(PORT, () => {
         console.log('Database schema ensured on server startup.');
     }).catch(error => {
         console.error('Failed to ensure database schema on server startup:', error);
+        // Depending on the application's needs, you might want to exit here
+        // if the database is critical and initialization fails.
+        // process.exit(1);
     });
 });
 

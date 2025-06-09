@@ -1,15 +1,13 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ProductsPage from './pages/ProductsPage';
 import OrdersPage from './pages/OrdersPage';
 import ReportsPage from './pages/ReportsPage';
-import PrivateRoute from './utils/PrivateRoute';
-import { useAuth } from './contexts/AuthContext';
+// import { useAuth } from './contexts/AuthContext'; // isLoading is available but not used for a global spinner here
 
 function App() {
-  const { isAuthenticated, isLoading } = useAuth();
+  // const { isLoading } = useAuth(); // isLoading might still be used from AuthContext for an initial load feel
 
   // Optional: If you want to show a global loading spinner during initial auth check
   // if (isLoading) {
@@ -18,21 +16,18 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      {/* All routes are now public */}
+      <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/products" element={<ProductsPage />} />
+      <Route path="/orders" element={<OrdersPage />} />
+      {/* <Route path="/orders/:orderId" element={<OrderDetailPage />} /> */}
+      <Route path="/reports" element={<ReportsPage />} />
       
-      {/* Protected Routes */}
-      <Route element={<PrivateRoute />}>
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/products" element={<ProductsPage />} />
-        <Route path="/orders" element={<OrdersPage />} />
-        {/* <Route path="/orders/:orderId" element={<OrderDetailPage />} /> */}
-        <Route path="/reports" element={<ReportsPage />} />
-        {/* Default authenticated route */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} /> 
-      </Route>
+      {/* Default route */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} /> 
 
-      {/* Fallback for any other route - could be a 404 page */}
-      <Route path="*" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />} />
+      {/* Fallback for any other route - now always redirects to dashboard */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { BellIcon } from '@heroicons/react/24/outline';
-import { useAuth } from '../contexts/AuthContext'; // To get user info if needed
+import { useAuth } from '../contexts/AuthContext'; // To get user info
 
 /**
  * Header component
@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext'; // To get user info if needed
  * @param {string} props.title - The title of the current page.
  */
 const Header = ({ title }) => {
-  const { user } = useAuth(); // Get user information, e.g., for avatar
+  const { user } = useAuth(); // Get user information
 
   // Generate a simple avatar URL based on user's email or a default name
   const avatarName = user?.email ? user.email.split('@')[0] : 'Admin User';

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { getSalesSummary } from '../services/reportService'; 
-import { getOrders } from '../services/orderService';
+import reportService from '../services/reportService'; // Updated import
+import orderService from '../services/orderService'; // Updated import
 import {
   CurrencyDollarIcon,
   ShoppingCartIcon,
@@ -18,12 +18,12 @@ const StatCard = ({ title, value, icon, trend, trendColor = 'text-success', unit
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-neutral-text-secondary">{title}</p>
-        <p className={`text-3xl font-bold ${unit === '$' ? 'text-neutral-text-primary' : (title === 'Low Stock Items' && value > 0 ? 'text-warning' : 'text-neutral-text-primary')}`}>
+        <p className={`text-3xl font-bold ${unit === '$' ? 'text-neutral-text-primary' : (title === 'Low Stock Items' && parseFloat(value) > 0 ? 'text-warning' : 'text-neutral-text-primary')}`}>
           {unit === '$' && '$'}{value}{unit !== '$' && unit}
         </p>
       </div>
-      <div className={`p-3 rounded-full ${title === 'Low Stock Items' && value > 0 ? 'bg-warning/20' : (title === 'New Orders' ? 'bg-accent/20' : 'bg-primary-light/30')}`}>
-        {React.cloneElement(icon, { className: `w-6 h-6 ${title === 'Low Stock Items' && value > 0 ? 'text-warning' : (title === 'New Orders' ? 'text-accent' : 'text-primary')}` })}
+      <div className={`p-3 rounded-full ${title === 'Low Stock Items' && parseFloat(value) > 0 ? 'bg-warning/20' : (title.includes('Orders') ? 'bg-accent/20' : 'bg-primary-light/30')}`}>
+        {React.cloneElement(icon, { className: `w-6 h-6 ${title === 'Low Stock Items' && parseFloat(value) > 0 ? 'text-warning' : (title.includes('Orders') ? 'text-accent' : 'text-primary')}` })}
       </div>
     </div>
     {trend && (
@@ -41,7 +41,7 @@ const StatCard = ({ title, value, icon, trend, trendColor = 'text-success', unit
 );
 
 const DashboardPage = () => {
-  const [summary, setSummary] = useState(null);
+  const [summaryData, setSummaryData] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
   const [loadingSummary, setLoadingSummary] = useState(true);
   const [loadingOrders, setLoadingOrders] = useState(true);
@@ -51,8 +51,13 @@ const DashboardPage = () => {
     const fetchData = async () => {
       try {
         setLoadingSummary(true);
-        const summaryRes = await getSalesSummary({ period: 'daily' }); // Fetch daily summary
-        setSummary(summaryRes.data);
+        const summaryRes = await reportService.getSalesSummary({ period: 'daily' }); // Updated usage
+        setSummaryData(summaryRes.sales_summary); // API returns data nested under sales_summary
+        // Also capture low_stock_items_count if it's separate
+        if (summaryRes.low_stock_items_count !== undefined) {
+            setSummaryData(prev => ({...prev, low_stock_items_count: summaryRes.low_stock_items_count}));
+        }
+
       } catch (err) {
         console.error('Failed to fetch sales summary:', err);
         setError('Failed to load dashboard summary. Please try again later.');
@@ -61,17 +66,16 @@ const DashboardPage = () => {
 
       try {
         setLoadingOrders(true);
-        const ordersRes = await getOrders({ limit: 3, sortBy: 'created_at', sortOrder: 'DESC' });
-        setRecentOrders(ordersRes.data.orders || []);
+        const ordersRes = await orderService.getOrders({ limit: 3, sortBy: 'created_at', sortOrder: 'DESC' }); // Updated usage
+        setRecentOrders(ordersRes.orders || []); // API returns orders nested under 'orders'
       } catch (err) {
         console.error('Failed to fetch recent orders:', err);
-        // Keep existing error or set new if summary was fine
         if (!error) setError('Failed to load recent orders. Please try again later.');
       }
       setLoadingOrders(false);
     };
     fetchData();
-  }, [error]); // Added error to dependency array to potentially allow retry or clear on other actions
+  }, []); // Removed error from dependency array to prevent re-fetch loops on error
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -82,34 +86,34 @@ const DashboardPage = () => {
     return <Layout pageTitle="Dashboard Overview"><div className="p-6 text-center">Loading dashboard data...</div></Layout>;
   }
 
-  if (error && !summary && recentOrders.length === 0) {
+  if (error && !summaryData && recentOrders.length === 0) {
     return <Layout pageTitle="Dashboard Overview"><div className="p-6 text-center text-error">{error}</div></Layout>;
   }
 
   return (
     <Layout pageTitle="Dashboard Overview">
       <div className="p-6 space-y-6">
-        {error && (!summary || recentOrders.length === 0) && <div className="p-3 text-sm text-error bg-red-100 rounded-md">{error}</div>}
+        {error && (!summaryData || recentOrders.length === 0) && <div className="p-3 text-sm text-error bg-red-100 rounded-md">{error}</div>}
         {/* Stats cards */} 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           <StatCard 
             title="Total Sales Today" 
-            value={summary?.total_revenue?.toFixed(2) || '0.00'} 
+            value={summaryData?.total_revenue?.toFixed(2) || '0.00'} 
             icon={<CurrencyDollarIcon />} 
             unit="$"
             // trend="15% from yesterday" // Placeholder, API doesn't provide this directly
           />
           <StatCard 
             title="New Orders Today" 
-            value={summary?.total_orders || 0} 
+            value={summaryData?.total_orders || 0} 
             icon={<ShoppingCartIcon />} 
             // trend="5 more than yesterday" // Placeholder
           />
           <StatCard 
             title="Low Stock Items" 
-            value={summary?.low_stock_items_count || 0} 
+            value={summaryData?.low_stock_items_count || 0} 
             icon={<ExclamationTriangleIcon />} 
-            link="/products?filter=low_stock" // Assuming products page can filter by low_stock
+            link="/products?filter=low_stock"
             linkText="View items"
           />
         </div>

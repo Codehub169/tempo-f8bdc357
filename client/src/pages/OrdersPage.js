@@ -3,7 +3,7 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import OrderModal from '../components/OrderModal';
 import BillModal from '../components/BillModal';
-import { getOrders, createOrder, updateOrderStatus, getOrderById } from '../services/orderService';
+import orderService from '../services/orderService'; // Updated import
 import { PlusIcon, EyeIcon, MagnifyingGlassIcon, PrinterIcon } from '@heroicons/react/24/outline';
 
 const OrdersPage = () => {
@@ -33,22 +33,22 @@ const OrdersPage = () => {
       const params = {
         page: currentPage,
         limit,
-        search: searchTerm, // Assuming backend supports search by customer_name or order ID
+        customer_name: searchTerm, // API expects customer_name for search
         status: filterStatus,
-        sort: sortOption.split('_')[0],
+        sortBy: sortOption.split('_')[0], // API uses 'sortBy'
         sortOrder: sortOption.split('_')[1]?.toUpperCase() || 'ASC',
       };
-      const data = await getOrders(params);
+      const data = await orderService.getOrders(params); // Updated usage
       setOrders(data.orders || []);
-      setTotalPages(data.totalPages || 1);
-      setTotalOrders(data.totalOrders || 0);
+      setTotalPages(Math.ceil(data.total / limit) || 1); // API returns 'total' for total orders
+      setTotalOrders(data.total || 0);
     } catch (err) {
       setError(err.message || 'Failed to fetch orders.');
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, filterStatus, sortOption]);
+  }, [currentPage, searchTerm, filterStatus, sortOption, limit]);
 
   useEffect(() => {
     fetchOrdersData();
@@ -67,7 +67,7 @@ const OrdersPage = () => {
 
   const handleSaveOrder = async (orderData) => {
     try {
-      await createOrder(orderData);
+      await orderService.createOrder(orderData); // Updated usage
       fetchOrdersData(); // Refresh list
       setIsOrderModalOpen(false);
     } catch (err) {
@@ -80,7 +80,7 @@ const OrdersPage = () => {
     // Fetch full order details including items for the bill
     try {
         setLoading(true);
-        const fullOrder = await getOrderById(order.id);
+        const fullOrder = await orderService.getOrderById(order.id); // Updated usage
         setSelectedOrderForBill(fullOrder);
         setIsBillModalOpen(true);
     } catch (err) {
@@ -96,9 +96,14 @@ const OrdersPage = () => {
         alert('Please select a new status.');
         return;
     }
+    const currentOrder = orders.find(o => o.id === orderId);
+    if (currentOrder && currentOrder.status === newStatus) {
+        return; // No change in status
+    }
+
     if (window.confirm(`Are you sure you want to change status to ${newStatus}?`)) {
         try {
-            await updateOrderStatus(orderId, newStatus);
+            await orderService.updateOrderStatus(orderId, newStatus); // Updated usage
             fetchOrdersData(); // Refresh list
         } catch (err) {
             setError(err.message || 'Failed to update order status.');
@@ -128,7 +133,7 @@ const OrdersPage = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString();
+    return new Date(dateString).toLocaleDateString('en-CA'); // YYYY-MM-DD format
   };
 
   return (
@@ -142,7 +147,7 @@ const OrdersPage = () => {
                 <input
                     type="text"
                     id="search-orders"
-                    placeholder="Search by Customer or Order ID..."
+                    placeholder="Search by Customer Name..."
                     className="w-full px-4 py-2.5 pr-10 border rounded-lg shadow-sm border-neutral-border focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     value={searchTerm}
                     onChange={(e) => {
@@ -228,12 +233,10 @@ const OrdersPage = () => {
                 {orders.map((order) => (
                   <tr key={order.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary hover:underline">
-                        {/* Placeholder for future Order Detail Page Link */}
-                        {/* <Link to={`/orders/${order.id}`}>#{order.id.toString().padStart(6, '0')}</Link> */}
-                        #{order.id.toString().padStart(6, '0')}
+                        <Link to={`/orders/${order.id}`}>#{order.id.toString().padStart(6, '0')}</Link>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-text-primary">{order.customer_name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-text-secondary">{formatDate(order.order_date)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-text-secondary">{formatDate(order.order_date || order.created_at)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-neutral-text-primary">${parseFloat(order.total_amount).toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2.5 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(order.status)}`}>
@@ -242,22 +245,21 @@ const OrdersPage = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2 flex items-center">
                         <select 
-                            value={order.status} // Controlled component for current status
+                            value={order.status} 
                             onChange={(e) => handleChangeStatus(order.id, e.target.value)}
                             className="text-xs p-1 border rounded-md border-neutral-border focus:ring-primary focus:border-primary disabled:opacity-50"
                             disabled={order.status === 'Completed' || order.status === 'Cancelled'}
                         >
-                            {statusOptions.map(s => <option key={s} value={s} >{s}</option>)}
+                            {statusOptions.map(s => <option key={s} value={s} disabled={s === order.status}>{s}</option>)}
                         </select>
                         {(order.status === 'Completed' || order.status === 'Shipped') && (
                             <button onClick={() => handleViewBill(order)} className="text-accent hover:text-green-700 p-1" title="View Bill">
                                 <PrinterIcon className="w-5 h-5" />
                             </button>
                         )}
-                         {/* Placeholder for future Order Detail Page Link Icon*/}
-                         {/* <Link to={`/orders/${order.id}`} className="text-primary hover:text-primary-light p-1" title="View Details">
+                         <Link to={`/orders/${order.id}`} className="text-primary hover:text-primary-light p-1" title="View Details">
                             <EyeIcon className="w-5 h-5" />
-                        </Link> */}
+                        </Link>
                     </td>
                   </tr>
                 ))}

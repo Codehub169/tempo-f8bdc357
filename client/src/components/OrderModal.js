@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, PlusCircleIcon, TrashIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
-import { getProducts } from '../services/productService'; // Assuming productService is set up
+import productService from '../services/productService'; // Updated import
 import { debounce } from 'lodash'; // yarn add lodash
 
 const OrderModal = ({ isOpen, onClose, onSaveOrder }) => {
@@ -21,8 +21,8 @@ const OrderModal = ({ isOpen, onClose, onSaveOrder }) => {
       }
       setIsLoadingProducts(true);
       try {
-        const response = await getProducts({ search: term, limit: 10 });
-        setSearchedProducts(response.data.products || []);
+        const response = await productService.getProducts({ search: term, limit: 10 }); // Updated usage
+        setSearchedProducts(response.products || []); // Adjusted to access products from response.data.products
       } catch (err) {
         console.error('Error fetching products:', err);
         setSearchedProducts([]);

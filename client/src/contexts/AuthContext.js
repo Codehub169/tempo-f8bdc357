@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import * as authService from '../services/authService';
+import { useNavigate } from 'react-router-dom';
+import authService from '../services/authService'; // Updated import
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(authService.getCurrentUser());
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [user, setUser] = useState(null); // Initialize with null, validateAndSetUser will populate
+  const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true); // For initial auth check and subsequent auth actions
   const [error, setError] = useState(null);
   const navigate = useNavigate();
@@ -14,15 +14,20 @@ export const AuthProvider = ({ children }) => {
   const validateAndSetUser = useCallback(async () => {
     setIsLoading(true);
     const currentToken = localStorage.getItem('token');
-    if (currentToken && authService.isAuthenticated()) {
+    if (currentToken && authService.isAuthenticated()) { // isAuthenticated checks token validity & expiry
       try {
-        // Optionally, verify token with backend if not done by isAuthenticated or if you want fresh user data
-        // const freshUser = await authService.fetchCurrentUser(); 
-        // setUser(freshUser);
-        setUser(authService.getCurrentUser()); // Assumes getCurrentUser decodes or retrieves valid user
-        setToken(currentToken);
+        // Fetch fresh user data to ensure it's up-to-date and token is truly valid on backend
+        const freshUser = await authService.fetchCurrentUser(); 
+        if (freshUser) {
+          setUser(freshUser);
+          setToken(currentToken);
+        } else { // Token might be valid locally but not on backend / user deleted etc.
+          authService.logout(); 
+          setUser(null);
+          setToken(null);
+        }
       } catch (e) {
-        console.error('Token validation failed:', e);
+        console.error('Token validation/user fetch failed:', e);
         authService.logout(); // Clear invalid token/user
         setUser(null);
         setToken(null);
@@ -56,17 +61,17 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const data = await authService.login(email, password);
-      setUser(data.user); // Assuming authService.login now also populates localStorage
+      setUser(data.user); // authService.login populates localStorage
       setToken(data.token);
       setIsLoading(false);
       return data;
     } catch (err) {
-      const errorMessage = err.response?.data?.message || err.message || 'Login failed. Please check your credentials.';
+      const errorMessage = err.message || 'Login failed. Please check your credentials.';
       setError(errorMessage);
       setUser(null);
       setToken(null);
       setIsLoading(false);
-      throw err;
+      throw err; // Re-throw for component-level handling if needed
     }
   };
 
@@ -75,15 +80,13 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const response = await authService.register(email, password);
-      // Typically, after registration, the user still needs to log in.
-      // No automatic login here to align with common practices.
       setIsLoading(false);
       return response;
     } catch (err) {
-      const errorMessage = err.response?.data?.message || err.message || 'Registration failed. Please try again.';
+      const errorMessage = err.message || 'Registration failed. Please try again.';
       setError(errorMessage);
       setIsLoading(false);
-      throw err;
+      throw err; // Re-throw for component-level handling
     }
   };
 
@@ -98,7 +101,6 @@ export const AuthProvider = ({ children }) => {
   const value = {
     user,
     token,
-    // isAuthenticated directly based on user and token state, further checks in authService
     isAuthenticated: !!user && !!token && authService.isAuthenticated(), 
     isLoading,
     error,
@@ -106,11 +108,9 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     clearError: () => setError(null),
-    refreshAuth: validateAndSetUser // Expose a way to refresh auth state if needed
+    refreshAuth: validateAndSetUser
   };
 
-  // Render children only after initial loading is complete to avoid flashes of content
-  // Or, you could return a global loading spinner here if isLoading is true.
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 

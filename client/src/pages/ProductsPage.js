@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import ProductModal from '../components/ProductModal';
-import { getProducts, deleteProduct, addProduct, updateProduct } from '../services/productService';
+import productService from '../services/productService'; // Updated import
 import { PlusIcon, PencilSquareIcon, TrashIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 const ProductsPage = () => {
@@ -33,20 +33,21 @@ const ProductsPage = () => {
         limit,
         search: searchTerm,
         category: filterCategory,
-        sort: sortOption.split('_')[0],
+        // Correctly parse sortOption for API: sort by 'name', 'price' etc. and order 'ASC'/'DESC'
+        sortBy: sortOption.split('_')[0], // API uses 'sortBy'
         sortOrder: sortOption.split('_')[1]?.toUpperCase() || 'ASC',
       };
-      const data = await getProducts(params);
+      const data = await productService.getProducts(params); // Updated usage
       setProducts(data.products || []);
-      setTotalPages(data.totalPages || 1);
-      setTotalProducts(data.totalProducts || 0);
+      setTotalPages(Math.ceil(data.total / limit) || 1); // API returns 'total' for total products
+      setTotalProducts(data.total || 0);
     } catch (err) {
       setError(err.message || 'Failed to fetch products. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchTerm, filterCategory, sortOption]);
+  }, [currentPage, searchTerm, filterCategory, sortOption, limit]);
 
   useEffect(() => {
     fetchProductsData();
@@ -58,6 +59,16 @@ const ProductsPage = () => {
       setIsModalOpen(true);
       navigate(location.pathname, { replace: true }); // Clear hash
     }
+    // Check for low_stock filter from query params (e.g. from Dashboard)
+    const queryParams = new URLSearchParams(location.search);
+    if (queryParams.get('filter') === 'low_stock') {
+        // This would require the backend to support a 'lowStock' boolean filter or similar
+        // For now, this is a placeholder. If backend supports `lowStock=true`:
+        // fetchProductsData({ lowStock: 'true' }); 
+        // Or adjust filtering logic if it's purely client-side (not ideal for pagination)
+        console.log('Low stock filter detected, implement accordingly if backend supports.');
+    }
+
   }, [location, navigate]);
 
   const handleAddProduct = () => {
@@ -73,7 +84,7 @@ const ProductsPage = () => {
   const handleDeleteProduct = async (productId) => {
     if (window.confirm('Are you sure you want to delete this product?')) {
       try {
-        await deleteProduct(productId);
+        await productService.deleteProduct(productId); // Updated usage
         fetchProductsData(); // Refresh list
       } catch (err) {
         setError(err.message || 'Failed to delete product.');
@@ -85,9 +96,9 @@ const ProductsPage = () => {
   const handleSaveProduct = async (productData) => {
     try {
       if (editingProduct) {
-        await updateProduct(editingProduct.id, productData);
+        await productService.updateProduct(editingProduct.id, productData); // Updated usage
       } else {
-        await addProduct(productData);
+        await productService.addProduct(productData); // Updated usage
       }
       fetchProductsData(); // Refresh list
       setIsModalOpen(false);
